@@ -1,0 +1,5 @@
+#! /bin/bash
+
+set -e
+
+curl https://pvdvreede.au.auth0.com/.well-known/openid-configuration | jq .

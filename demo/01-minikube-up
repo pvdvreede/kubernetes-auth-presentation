@@ -1,0 +1,13 @@
+#! /bin/bash
+
+set -exu
+
+minikube start \
+  --vm-driver xhyve \
+  --extra-config=apiserver.Authorization.Mode=RBAC \
+  --extra-config apiserver.Authentication.OIDC.ClientID=$CLIENT_ID \
+  --extra-config apiserver.Authentication.OIDC.IssuerURL=https://pvdvreede.au.auth0.com/ \
+  --extra-config apiserver.Authentication.OIDC.UsernameClaim=email \
+  --extra-config apiserver.Authentication.OIDC.GroupsClaim=groups \
+  --memory 4096 \
+  --cpus 4

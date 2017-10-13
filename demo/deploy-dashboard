@@ -1,0 +1,10 @@
+#! /bin/bash
+
+set -exu
+
+kubectl config set-context --user minikube --cluster minikube --namespace kube-system mk-system
+kubectl config use-context mk-system
+
+kubectl apply -f bundle.yaml --validate=false
+
+kubectl rollout status deployment/kubernetes-dashboard-oidc

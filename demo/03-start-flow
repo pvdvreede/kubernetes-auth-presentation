@@ -1,0 +1,5 @@
+#! /bin/bash
+
+set -ex
+
+open "https://pvdvreede.au.auth0.com/authorize?client_id=$CLIENT_ID&scope=openid+email&response_type=code&redirect_uri=http://localhost:3000/oauth2/callback"

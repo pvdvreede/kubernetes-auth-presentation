@@ -1,0 +1,7 @@
+#! /bin/bash
+
+set -e
+
+token=$1
+
+open "https://jwt.io?value=$token"

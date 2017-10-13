@@ -1,0 +1,130 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-oidc-config
+  namespace: kube-system
+data:
+  nginx.conf: |-
+    events {
+      worker_connections 128;
+    }
+    error_log /dev/stdout info;
+    env OIDC_CLIENT_ID;
+    env OIDC_CLIENT_SECRET;
+    env SESSION_SECRET;
+    http {
+      resolver 8.8.8.8;
+      lua_package_path '~/lua/?.lua;;';
+      # cache for JWT verification results
+      lua_shared_dict introspection 10m;
+      # cache for jwks metadata documents
+      lua_shared_dict discovery 1m;
+      server {
+        listen 9000;
+        set $session_secret os.getenv("SESSION_SECRET");
+        set $session_cookie_secure on;
+        large_client_header_buffers 4 32k;
+        location / {
+          access_by_lua '
+            local opts = {
+              client_id = os.getenv("OIDC_CLIENT_ID"),
+              client_secret = os.getenv("OIDC_CLIENT_SECRET"),
+              redirect_uri_path = "/oauth2/callback",
+              ssl_verify = "no",
+              discovery = "https://pvdvreede.au.auth0.com/.well-known/openid-configuration",
+              expiry_claim = "exp"
+            }
+            local res, err, _target, session = require("resty.openidc").authenticate(opts)
+            if err or not res then
+              ngx.status = 403
+              ngx.say("forbidden")
+              ngx.exit(ngx.HTTP_FORBIDDEN)
+            end
+            ngx.req.set_header("Authorization", "Bearer "..session.data.enc_id_token)
+          ';
+          proxy_pass http://localhost:9090;
+        }
+      }
+    }
+
+---
+kind: Deployment
+apiVersion: apps/v1beta1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard-oidc
+  name: kubernetes-dashboard-oidc
+  namespace: kube-system
+spec:
+  strategy:
+    rollingUpdate:
+      maxSurge: "50%"
+      maxUnavailable: "50%"
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      k8s-app: kubernetes-dashboard-oidc
+  template:
+    metadata:
+      labels:
+        k8s-app: kubernetes-dashboard-oidc
+    spec:
+      containers:
+      - name: kubernetes-dashboard
+        image: gcr.io/google_containers/kubernetes-dashboard-amd64:v1.6.3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9090
+          initialDelaySeconds: 5
+          timeoutSeconds: 30
+      - name: openresty-oidc
+        image: myobplatform/openresty-oidc:1.0.2
+        ports:
+        - containerPort: 9000
+          protocol: TCP
+        env:
+          - name: OIDC_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: kube-dashboard-secrets
+                key: client_id
+          - name: OIDC_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: kube-dashboard-secrets
+                key: client_secret
+          - name: SESSION_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: kube-dashboard-secrets
+                key: session
+        volumeMounts:
+          - name: openresty-conf
+            mountPath: /conf
+            readOnly: true
+        args:
+          - "-c"
+          - "/conf/nginx.conf"
+      volumes:
+        - name: openresty-conf
+          configMap:
+            name: dashboard-oidc-config
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard-oidc
+  name: kubernetes-dashboard-oidc
+  namespace: kube-system
+spec:
+  type: NodePort
+  ports:
+  - port: 9000
+    nodePort: 30004
+  selector:
+    k8s-app: kubernetes-dashboard-oidc

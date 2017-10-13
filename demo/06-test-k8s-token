@@ -1,0 +1,14 @@
+#! /bin/bash
+
+set -eu
+
+token=$1
+
+BODY="{\"apiVersion\": \"authentication.k8s.io/v1beta1\",\"kind\": \"TokenReview\",\"spec\": {  \"token\": \"$token\"}}"
+
+kubectl proxy &
+sleep 1
+
+curl -X POST -d "$BODY" -H "Content-Type: application/json" http://localhost:8001/apis/authentication.k8s.io/v1beta1/tokenreviews
+
+kill %1
