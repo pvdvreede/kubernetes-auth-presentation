@@ -1,0 +1,99 @@
+#! /usr/bin/env ruby
+
+$stdout.sync = true
+$stderr.sync = true
+
+require 'webrick'
+require 'json'
+require 'httparty'
+require 'uri'
+
+CLUSTER_URL = "https://192.168.64.39:8443"
+K8S_CA = ARGV[0]
+
+CLIENT_ID = ENV['CLIENT_ID']
+NONCE = (0...16).map { (65 + rand(26)).chr }.join
+REDIRECT_URI = "http://localhost:9000/oauth2/callback"
+AUTH_URL = "https://pvdvreede.au.auth0.com/authorize/?" + URI.escape([
+  "response_type=id_token",
+  "client_id=#{CLIENT_ID}",
+  "redirect_uri=#{REDIRECT_URI}",
+  "scope=openid+email",
+  "nonce=#{NONCE}"
+].join("&"), ":/?")
+NS = 'kube-system'
+
+def env_file(token)
+<<-ENVFILE
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: #{K8S_CA}
+    server: #{CLUSTER_URL}
+  name: #{CLUSTER_URL}
+contexts:
+- context:
+    cluster: #{CLUSTER_URL}
+    namespace: #{NS}
+    user: OIDCUser
+  name: #{CLUSTER_URL}
+current-context: #{CLUSTER_URL}
+kind: Config
+preferences: {}
+users:
+- name: OIDCUser
+  user:
+    token: #{token}
+ENVFILE
+end
+
+def redir_html
+<<-HTML
+<script>
+(function() {
+  var hash = location.hash.slice(1);
+  window.location = "/auth/post?" + hash;
+})()
+</script>
+HTML
+end
+
+def write_creds(path, token)
+  handler = File.open(path, 'w')
+  str = env_file(token)
+  handler.write(str)
+ensure
+  handler.close
+end
+
+puts "Redirecting to #{AUTH_URL}..."
+system "open \"#{AUTH_URL}\""
+puts "Waiting for the response on localhost:9000..."
+
+server = WEBrick::HTTPServer.new :Port => 9000
+server.mount_proc '/oauth2/callback' do |req, res|
+  res.status = 200
+  res.body = redir_html
+end
+
+server.mount_proc "/auth/post" do |req, res|
+  token = req.query["id_token"]
+  puts req.query
+
+  if token != nil
+    write_creds('/tmp/auth_env', token)
+    res.status = 200
+    res.body = "Authentication complete!"
+  else
+    res.status = 500
+    res.body = "id token not present. :("
+    puts "No id token in callback."
+    exit 1
+  end
+
+  server.shutdown
+end
+
+server.start
+
+puts "The auth flow has been completed."
