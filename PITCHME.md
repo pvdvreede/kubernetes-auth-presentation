@@ -42,7 +42,7 @@ Note:
 #### How does Kubernetes Auth/RBAC work?
 
 ```
-kubectl
+kubectl / http client
 
   \/
 
@@ -62,280 +62,126 @@ admission controllers
 @[6-9]
 @[10-13]
 
+Note:
+* Kubernetes API server uses a pipeline to determine whether an incoming request will succeed
+* First checking the credentials to determine who a user is, either by:
+  - hardcoded basic auth tokens
+  - Client certificates
+  - OIDC token (what we will look at today)
+* If creds are validated and a userid is assigned we move onto seeing whether that user has the correct permissions to act on the resource that is the subject of the request - only if RBAC is enabled
+* Finally if the user is allowed to perform an action on the resource admission controllers will determine any rules around the resource as to whether that type of resource supports the values the request is trying to set
+
+
 ---
 
-#### Kubernetes RBAC
+#### Kubernetes RBAC (Authorization)
 
 * Resources and Verbs
-* API Groups
-* Cluster level resources (ClusterRole) v Namespace level (Role)
-* Mixing and matching
+* Much like AWS IAM Policies
+* Allows fine grain control over what a user or group has access over
+
+Note:
+* Just a quick mention of Kubernetes RBAC
+* OIDC is integrated with RBAC in that you can specify the type of access a user has from your IDP, not just whether the user can access it at all
+* It stands for Role Based Access Control
+* It allows fine grained control over resources eg you can set only certain actions to be performed on specific resources
+* It has gone GA since 1.8
+
 
 ---
 
 #### What is OpenID Connect
 
+* Allows delegating authentication of users to a trusted identity provider
+* Decouples the login flow from the app via a signed Json Web Token (JWT)
 * Sits on top of OAuth2 as an extension
+
+
+Note:
 * Dictates the claims being passed
 * Has its own OAuth2 scope
 * Provides introspection of the configuration via a `/.well-known/openidconfiguration` discovery endpoint
-
-Note:
 * The OAuth 2 spec specifies the auth flow and other things
 * OpenID Connect just leverages that and standardises some of the claims present
+* Important to note that k8s does not keep a user database - it merely sets the identity of a request via the OIDC token claim
 * The well known endpoint contains uris, encryption keys so that they do not need to be specified by the client everytime and can be changed
 
 ---
 
-#### openid discovery
+#### How OIDC works
 
-```json
-  {
-   "issuer": "https://server.example.com",
-   "authorization_endpoint":"https://server.example.com/connect/authorize",
-   "token_endpoint":"https://server.example.com/connect/token",
-   "token_endpoint_auth_methods_supported":["client_secret_basic", "private_key_jwt"],
-   "token_endpoint_auth_signing_alg_values_supported":["RS256", "ES256"],
-   "userinfo_endpoint":"https://server.example.com/connect/userinfo",
-   "check_session_iframe":"https://server.example.com/connect/check_session",
-   "end_session_endpoint":"https://server.example.com/connect/end_session",
-   "jwks_uri":"https://server.example.com/jwks.json",
-   "registration_endpoint":"https://server.example.com/connect/register",
-   "scopes_supported":["openid", "profile", "email", "address","phone", "offline_access"],
-   "response_types_supported":["code", "code id_token", "id_token", "token id_token"],
-   "acr_values_supported":
-     ["urn:mace:incommon:iap:silver",
-      "urn:mace:incommon:iap:bronze"],
-   "subject_types_supported":
-     ["public", "pairwise"],
-   "userinfo_signing_alg_values_supported":
-     ["RS256", "ES256", "HS256"],
-   "userinfo_encryption_alg_values_supported":
-     ["RSA1_5", "A128KW"],
-   "userinfo_encryption_enc_values_supported":
-     ["A128CBC-HS256", "A128GCM"],
-   "id_token_signing_alg_values_supported":
-     ["RS256", "ES256", "HS256"],
-   "id_token_encryption_alg_values_supported":
-     ["RSA1_5", "A128KW"],
-   "id_token_encryption_enc_values_supported":
-     ["A128CBC-HS256", "A128GCM"],
-   "request_object_signing_alg_values_supported":
-     ["none", "RS256", "ES256"],
-   "display_values_supported":
-     ["page", "popup"],
-   "claim_types_supported":
-     ["normal", "distributed"],
-   "claims_supported":
-     ["sub", "iss", "auth_time", "acr",
-      "name", "given_name", "family_name", "nickname",
-      "profile", "picture", "website",
-      "email", "email_verified", "locale", "zoneinfo",
-      "http://example.info/claims/groups"],
-   "claims_parameter_supported":
-     true,
-   "service_documentation":
-     "http://server.example.com/connect/service_documentation.html",
-   "ui_locales_supported":
-     ["en-US", "en-GB", "en-CA", "fr-FR", "fr-CA"]
-  }
-```
+<img src="images/login-flow-sd.png" height="500" />
 
 Note:
-* OIDC uses an endpoint on the provider so that clients can dynamically get the configuration, encryption keys and endpoint uris.
+* Shows how the flow happens in the context of the k8s dashboard
 
 ---
 
-#### The cast
+#### The ID token
 
-Provider
-
-Client
-
-Note:
-* Outline who all the actors are in the flow with a name
-* Go through each actor with setup
-
----
-
-# Example
-
-Note:
-* Going to step through an example
-
----
-
-### Step 1
+`eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9`.
+`eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9`.
+`EkN-DOsnsuRjRO6BxXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZsHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE`
 
 ```
-HTTP/1.1 GET https://the.k8s.dashboard
-```
-
-```
-302 Found
-Location: https://<idp>/oauth2/auth?
-  client_id=<kubernetes dashboard id>&
-  redirect_uri=<url client can redirect back to>&
-  scope=openid%20email%20profile
-  ...
-```
-
-@[3]
-@[4]
-@[5]
-
----
-
-### Step 2
-
-```
-HTTP/1.1 GET https://<idp>/oauth2/auth?
-  client_id=<kubernetes dashboard id>&
-  redirect_uri=<url client can redirect back to>&
-  scope=openid%20email%20profile
-  ...
-```
-
-<Idp starts login flow and we login>
-
-```
-302 Found
-Location: https://<redirect uri from above>?code=<auth code>
-```
-
----
-
-### Step 3
-
-```
-HTTP/1.1 GET https://<redirect uri from above>?code=<auth code>
-```
-
-```
-HTTP/1.1 POST https://<idp>/oauth2/token
-
 {
-
+  "alg": "RS256",
+  "typ": "JWT"
 }
-```
-
-```
-200 Success
-
 {
-
+  "sub": "1234567890",
+  "name": "John Doe",
+  "admin": true
 }
-```
-
-```
-200 Success
-
-<k8s dashboard html>
-```
-
----
-
-# Kubernetes Setup
-
-Note:
-* Lets go through how we actually set this up in Kubernetes for the api server
-* There are several change points that need to be orchestrated together
-
----
-
-#### Kubernetes API Server config
-
-kube-apiserver cli flags
-
-```
---oidc-ca-file # Can be left out to defer to host CAs
---oidc-client-id # Generated and given to you by IdP
---oidc-groups-claim # the claim key in the JWT for the groups
---oidc-groups-prefix
---oidc-issuer-url # The OIDC discovery endpoint
---oidc-username-claim # the claim key in the JWT for username
---oidc-username-prefix
-```
-
-@[5]
-@[2]
-@[6]
-@[3]
-
-Note:
-* Show the api server params
-* Explain what each one is for in the context of previous flow slides
-
----
-
-#### Debugging and testing tokens
-
-https://k8s.api.server/apis/authentication.k8s.io/v1beta1/tokenreviews
-
-Request POST body:
-
-```json
-{
-  "apiVersion": "authentication.k8s.io/v1beta1",
-  "kind": "TokenReview",
-  "spec": {
-    "token": "<our JWT token we want to debug>"
-  }
-}
-```
-
-Response:
-
-```json
-
+<signature of above>
 ```
 
 Note:
-* You MUST be authed and allowed to hit THIS endpoint
+* The key to OIDC and being able to decouple the login flow from the app is id_token that is given by the IdP and then used by the app
+* The token itself is NOT encrypted
+* It contains key, value pairs that anyone can see (ie claims)
+* It also has a signature/checksum that anyone can use to verify the claims have not been tampered with
 
 ---
 
-#### Openresty config
+#### Demo
 
-```
-http {
-  resolver 8.8.8.8;
-  lua_package_path '~/lua/?.lua;;';
-  # cache for JWT verification results
-  lua_shared_dict introspection 10m;
-  # cache for jwks metadata documents
-  lua_shared_dict discovery 1m;
-  server {
-    listen 9000;
-    set $session_secret os.getenv("SESSION_SECRET");
-    set $session_cookie_secure on;
-    large_client_header_buffers 4 32k;
-    location / {
-      access_by_lua '
-        local opts = {
-          client_id = os.getenv("OIDC_CLIENT_ID"),
-          client_secret = os.getenv("OIDC_CLIENT_SECRET"),
-          redirect_uri_path = "/oauth2/callback",
-          discovery = "https://my.oauth2.server/.well-known/openid-configuration"
-        }
-        local res, err, _target, session = require("resty.openidc").authenticate(opts)
-        if err or not res then
-          ngx.status = 403
-          ngx.say("forbidden")
-          ngx.exit(ngx.HTTP_FORBIDDEN)
-        end
-        ngx.req.set_header("Authorization", "Bearer "..session.data.enc_id_token)
-      ';
-      proxy_pass http://localhost:9090;
-    }
-  }
-}
-```
+![Demo](images/whattodo.png)
 
-@[16]
-@[21-35]
-@[22,25]
-@[34]
-@[36]
+Note:
+* We are going to do a demo where we use Auth0 and minikube to setup a local cluster with Open ID Connect authentication over the dashboard and for using with kubectl
 
-Using: [https://github.com/pingidentity/lua-resty-openidc](https://github.com/pingidentity/lua-resty-openidc)
+---
+
+#### Demo - Pod Dashboard setup
+
+![Pod setup](images/podsetup.png)
+
+Note:
+* Here is a zoomed in perspective of the kubernetes dashboard pod
+* It differs in that the dashboard has a facade which is an openresty/nginx container in front that all requests are proxied through
+* This openresty container is where the magic happens
+
+---
+
+# Demo
+
+Note:
+* Lets run through the demo
+* Show Auth0 and we have a client setup
+* Show our 'users' we have setup that are part of different groups
+* So Auth0 is our IdP - we are delegating the authentication of users to it, and trusting it by accepting JWT that it has signed
+* Make sure minikube start fresh with `minikube delete`
+* Go through minikube setup and how we configure the api server with the oidc flags
+* Create a new minikube cluster `01-minikube-up`
+* Confirm our minikube ip with `minikube ip`
+* So we have our cluster up and running and it is configured to accept oidc tokens from our IdP, how do we generate the tokens?
+* We need to run the dashboard with our openresty container in front of it
+* That container needs to know the client id and secret that we created in Auth0
+* So we export our client details and then run `02-create-oidc-secrets`
+* Now we deploy our dashboard pod with `03-deploy-dashboard`
+* Note how the dashboard service account only has limited access
+* If we go to the dashboard endpoint we should now get redirected to auth0 and be able to log in
+* This will give us access to the dashboard! But the dashboard is telling us our user does not have access to anything :(
+* If we look at the JWT we got back, you can see that one of the claims in there is `groups`, the api server during the authorization stage will try and match this list from the claims in the JWT to a role binding or cluster role binding in k8s.
+* If we deploy some roles with `05-deploy-role-binding` refresh then things should start working
