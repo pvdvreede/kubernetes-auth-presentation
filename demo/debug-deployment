@@ -1,0 +1,8 @@
+#! /bin/bash
+
+set -ex
+
+kubectl -n kube-system get pods
+
+kubectl -n kube-system logs deployment/kubernetes-dashboard-oidc -c openresty-oidc
+kubectl -n kube-system logs deployment/kubernetes-dashboard-oidc -c kubernetes-dashboard

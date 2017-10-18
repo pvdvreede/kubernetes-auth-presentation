@@ -2,6 +2,12 @@
 
 set -exu
 
+# The following api server flags are equal to the following in the apiserver binary:
+# --oidc-client-id
+# --oidc-issuer-url
+# --oidc-username-claim
+# --oidc-groups-claim
+
 minikube start \
   --vm-driver xhyve \
   --extra-config=apiserver.Authorization.Mode=RBAC \

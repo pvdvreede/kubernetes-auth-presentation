@@ -1,5 +1,51 @@
 ---
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+  namespace: kube-system
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: kubernetes-dashboard-minimal
+  namespace: kube-system
+rules:
+  # Allow Dashboard to create and watch for changes of 'kubernetes-dashboard-key-holder' secret.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  # Allow Dashboard to get, update and delete 'kubernetes-dashboard-key-holder' secret.
+  resourceNames: ["kubernetes-dashboard-key-holder"]
+  verbs: ["get", "update", "delete"]
+  # Allow Dashboard to get metrics from heapster.
+- apiGroups: [""]
+  resources: ["services"]
+  resourceNames: ["heapster"]
+  verbs: ["proxy"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: kubernetes-dashboard-minimal
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubernetes-dashboard-minimal
+subjects:
+- kind: ServiceAccount
+  name: kubernetes-dashboard
+  namespace: kube-system
+
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: dashboard-oidc-config
@@ -9,7 +55,7 @@ data:
     events {
       worker_connections 128;
     }
-    error_log /dev/stdout info;
+    error_log /dev/stdout debug;
     env OIDC_CLIENT_ID;
     env OIDC_CLIENT_SECRET;
     env SESSION_SECRET;
@@ -23,7 +69,7 @@ data:
       server {
         listen 9000;
         set $session_secret os.getenv("SESSION_SECRET");
-        set $session_cookie_secure on;
+        set $session_cookie_secure off; # set this to 'on' in prod!
         large_client_header_buffers 4 32k;
         location / {
           access_by_lua '
@@ -33,7 +79,8 @@ data:
               redirect_uri_path = "/oauth2/callback",
               ssl_verify = "no",
               discovery = "https://pvdvreede.au.auth0.com/.well-known/openid-configuration",
-              expiry_claim = "exp"
+              expiry_claim = "exp",
+              scope = "email openid"
             }
             local res, err, _target, session = require("resty.openidc").authenticate(opts)
             if err or not res then
@@ -70,18 +117,23 @@ spec:
     metadata:
       labels:
         k8s-app: kubernetes-dashboard-oidc
+      annotations:
+        update-me: "4"
     spec:
       containers:
       - name: kubernetes-dashboard
-        image: gcr.io/google_containers/kubernetes-dashboard-amd64:v1.6.3
+        image: gcr.io/google_containers/kubernetes-dashboard-amd64:v1.7.1
         livenessProbe:
           httpGet:
             path: /
             port: 9090
           initialDelaySeconds: 5
           timeoutSeconds: 30
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp-volume
       - name: openresty-oidc
-        image: myobplatform/openresty-oidc:1.0.2
+        image: myobplatform/openresty-oidc:1.0.3
         ports:
         - containerPort: 9000
           protocol: TCP
@@ -112,6 +164,9 @@ spec:
         - name: openresty-conf
           configMap:
             name: dashboard-oidc-config
+        - name: tmp-volume
+          emptyDir: {}
+      serviceAccountName: kubernetes-dashboard
 
 ---
 kind: Service

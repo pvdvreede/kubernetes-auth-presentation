@@ -7,20 +7,25 @@ require 'webrick'
 require 'json'
 require 'httparty'
 require 'uri'
+require 'jwt'
 
-CLUSTER_URL = "https://192.168.64.39:8443"
+CLUSTER_URL = "https://192.168.64.#{ARGV[1]}:8443"
 K8S_CA = ARGV[0]
 
 CLIENT_ID = ENV['CLIENT_ID']
 NONCE = (0...16).map { (65 + rand(26)).chr }.join
+STATE = (0...16).map { (65 + rand(26)).chr }.join
+
 REDIRECT_URI = "http://localhost:9000/oauth2/callback"
 AUTH_URL = "https://pvdvreede.au.auth0.com/authorize/?" + URI.escape([
   "response_type=id_token",
   "client_id=#{CLIENT_ID}",
   "redirect_uri=#{REDIRECT_URI}",
   "scope=openid+email",
-  "nonce=#{NONCE}"
+  "nonce=#{NONCE}",
+  "state=#{STATE}"
 ].join("&"), ":/?")
+
 NS = 'kube-system'
 
 def env_file(token)
@@ -78,16 +83,18 @@ end
 
 server.mount_proc "/auth/post" do |req, res|
   token = req.query["id_token"]
-  puts req.query
+  state = req.query["state"]
 
-  if token != nil
-    write_creds('/tmp/auth_env', token)
+  if token != nil && state != nil && state == STATE
+    write_creds('/tmp/auth_env.yaml', token)
     res.status = 200
-    res.body = "Authentication complete!"
+    decoded_token = JWT.decode token, nil, false
+    puts decoded_token
+    res.body = "Authentication complete!\nHere is the token:\n#{decoded_token}"
   else
     res.status = 500
-    res.body = "id token not present. :("
-    puts "No id token in callback."
+    res.body = "id token or state not present. :(\n#{req.query}"
+    puts "No id token or state in callback."
     exit 1
   end
 
